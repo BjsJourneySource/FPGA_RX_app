@@ -184,37 +184,36 @@ int video_get_framerate(int dev, int *framerate)
 
 static int video_reqbufs(int dev, int nbufs)
 {
-    struct v4l2_requestbuffers rb;
-    int ret;
+	struct v4l2_requestbuffers rb;
+	int ret;
 
-    memset(&rb, 0, sizeof(rb));
-    rb.count = nbufs;
-    rb.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    rb.memory = V4L2_MEMORY_MMAP;
+	memset(&rb, 0, sizeof(rb));
+	rb.count = nbufs;
+	rb.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	rb.memory = V4L2_MEMORY_MMAP;
 
-    ret = ioctl(dev, VIDIOC_REQBUFS, &rb);
-    if (ret < 0) {
-        TestAp_Printf(TESTAP_DBG_ERR, "Unable to allocate buffers: %d.\n", errno);
-        return ret;
-    }
+	ret = ioctl(dev, VIDIOC_REQBUFS, &rb);
+	if (ret < 0) {
+		TestAp_Printf(TESTAP_DBG_ERR, "Unable to allocate buffers: %d.\n", errno);
+		return ret;
+	}
 
-    TestAp_Printf(TESTAP_DBG_FLOW, "%u buffers allocated.\n", rb.count);
-    return rb.count;
+	TestAp_Printf(TESTAP_DBG_FLOW, "%u buffers allocated.\n", rb.count);
+	return rb.count;
 }
 
 static int video_enable(int dev, int enable)
 {
-    int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    int ret;
+	int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	int ret;
 
-    ret = ioctl(dev, enable ? VIDIOC_STREAMON : VIDIOC_STREAMOFF, &type);
-    if (ret < 0) {
-        TestAp_Printf(TESTAP_DBG_ERR, "Unable to %s capture: %d.\n",
-            enable ? "start" : "stop", errno);
-        return ret;
-    }
+	ret = ioctl(dev, enable ? VIDIOC_STREAMON : VIDIOC_STREAMOFF, &type);
+	if (ret < 0) {
+		TestAp_Printf(TESTAP_DBG_ERR, "Unable to %s capture: %d.\n", enable ? "start" : "stop", errno);
+		return ret;
+	}
 
-    return 0;
+	return 0;
 }
 
 static int GetFreeRam(int *freeram)
@@ -315,6 +314,8 @@ static void *video_capture_pthread(void *context)
 #if 1
 	char do_xu_get_br = 0;
 	char do_xu_set_br = 1;
+	
+	m_BitRate =2000000;
 
 	/* Set the bit rate of UVC device. */
 	ret = XU_Ctrl_ReadChipID(dev);
@@ -323,14 +324,16 @@ static void *video_capture_pthread(void *context)
 
 	if (do_xu_get_br) {
 		XU_H264_Get_BitRate(dev, &m_BitRate);
-		if(m_BitRate < 0 )
-		TestAp_Printf(TESTAP_DBG_ERR, "SONiX_UVC_TestAP @main : XU_H264_Get_BitRate Failed\n");
+		if (m_BitRate < 0 ) {
+			TestAp_Printf(TESTAP_DBG_ERR, "SONiX_UVC_TestAP @main : XU_H264_Get_BitRate Failed\n");
+		}
 		TestAp_Printf(TESTAP_DBG_FLOW, "Current bit rate: %.2f Kbps\n",m_BitRate);
 	}
 
 	if (do_xu_set_br) {
-		if (XU_H264_Set_BitRate(dev, m_BitRate) < 0 )
+		if (XU_H264_Set_BitRate(dev, m_BitRate) < 0 ) {
 			TestAp_Printf(TESTAP_DBG_ERR, "SONiX_UVC_TestAP @main : XU_H264_Set_BitRate Failed\n");
+		}
 	}
 
 #endif
@@ -411,7 +414,7 @@ static void *video_capture_pthread(void *context)
 	//do_xu_set_br = 1;
 	//m_BitRate = atoi(optarg);
 	m_BitRate =2000000;
-	 
+	
 	do_upload = 1;
 	device_id = 1111199999;
 	//memcpy(server_ip, "172.20.30.113", sizeof(server_ip));
