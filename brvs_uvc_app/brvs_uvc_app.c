@@ -216,6 +216,13 @@ static int video_enable(int dev, int enable)
 	return 0;
 }
 
+#if 0		//add by BJS
+static int video_close(int fd)
+{
+
+}
+#endif
+
 static int GetFreeRam(int *freeram)
 {
 	FILE *meminfo = fopen("/proc/meminfo", "r");
@@ -254,7 +261,7 @@ static void *video_capture_pthread(void *context)
 	int do_record = 1;
 	int framerate = 30;
 	int pixelformat = V4L2_PIX_FMT_H264;
-	int freeram;
+	int freeram = 0;
 
 	double fps;
 
@@ -277,12 +284,11 @@ static void *video_capture_pthread(void *context)
 	//char *endptr;
 	//int c;
 	
-	/* yview protocol ++ */
-	unsigned char do_upload = 0;
+	unsigned char do_upload = 1;
 	unsigned long device_id = 0;
 	char server_ip[20] = {0};
 	short server_port = 0;
-	int m_BitRate = 0;
+	double m_BitRate = 0;
 //bjs--
 
 	struct v4l2_buffer buf0;
@@ -294,38 +300,37 @@ static void *video_capture_pthread(void *context)
 		return NULL;
 	
 	if (!do_capture) {
-		close(dev);
-		return NULL;
+		goto ERR;
 	}
 
 	/* Set the video format. */
 	if (video_set_format(dev, width, height, pixelformat) < 0) {
-		close(dev);
-		return NULL;
+		goto ERR;
 	}
 
 	/* Set the frame rate. */
 	if (video_set_framerate(dev, framerate, NULL) < 0) {
-		close(dev);
-		return NULL;
+		goto ERR;
 	}
 
 //bjs ++
-#if 1
 	char do_xu_get_br = 0;
 	char do_xu_set_br = 1;
 	
-	m_BitRate =2000000;
+	m_BitRate =2000000.0;
 
 	/* Set the bit rate of UVC device. */
 	ret = XU_Ctrl_ReadChipID(dev);
-	if (ret < 0)
+	if (ret < 0) {
 		TestAp_Printf(TESTAP_DBG_ERR, "SONiX_UVC_TestAP @main : XU_Ctrl_ReadChipID Failed\n");
+		goto ERR;
+	}
 
 	if (do_xu_get_br) {
 		XU_H264_Get_BitRate(dev, &m_BitRate);
 		if (m_BitRate < 0 ) {
 			TestAp_Printf(TESTAP_DBG_ERR, "SONiX_UVC_TestAP @main : XU_H264_Get_BitRate Failed\n");
+			goto ERR;
 		}
 		TestAp_Printf(TESTAP_DBG_FLOW, "Current bit rate: %.2f Kbps\n",m_BitRate);
 	}
@@ -333,24 +338,22 @@ static void *video_capture_pthread(void *context)
 	if (do_xu_set_br) {
 		if (XU_H264_Set_BitRate(dev, m_BitRate) < 0 ) {
 			TestAp_Printf(TESTAP_DBG_ERR, "SONiX_UVC_TestAP @main : XU_H264_Set_BitRate Failed\n");
+			goto ERR;
 		}
 	}
 
-#endif
 
-#if 1
 	if (GetFreeRam(&freeram) && freeram < (1843200 * nbufs + 4194304)) {
 		TestAp_Printf(TESTAP_DBG_ERR, "free memory isn't enough(%d)\n", freeram);
 		ret = 1;
 		goto ERR;
 	}
-#endif
 //bjs --
 
 	/* Allocate buffers. */
 	if ((int)(nbufs = video_reqbufs(dev, nbufs)) < 0) {
-		close(dev);
-		return NULL;
+		goto ERR;
+
 	}
 
 	/* Map the buffers. */
@@ -362,16 +365,14 @@ static void *video_capture_pthread(void *context)
 		ret = ioctl(dev, VIDIOC_QUERYBUF, &buf0);
 		if (ret < 0) {
 			TestAp_Printf(TESTAP_DBG_ERR, "Unable to query buffer %u (%d).\n", i, errno);
-			close(dev);
-			return NULL;
+			goto ERR;
 		}
 		TestAp_Printf(TESTAP_DBG_FLOW, "length: %u offset: %10u     --  ", buf0.length, buf0.m.offset);
 
 		mem0[i] = mmap(0, buf0.length, PROT_READ, MAP_SHARED, dev, buf0.m.offset);
 		if (mem0[i] == MAP_FAILED) {
 			TestAp_Printf(TESTAP_DBG_ERR, "Unable to map buffer %u (%d)\n", i, errno);
-			close(dev);
-			return NULL;
+			goto ERR;
 		}
 		TestAp_Printf(TESTAP_DBG_FLOW, "Buffer %u mapped at address %p.\n", i, mem0[i]);
 	}
@@ -385,8 +386,7 @@ static void *video_capture_pthread(void *context)
 		ret = ioctl(dev, VIDIOC_QBUF, &buf0);
 		if (ret < 0) {
 			TestAp_Printf(TESTAP_DBG_ERR, "Unable to queue buffer0(%d).\n", errno);
-			close(dev);
-			return NULL;
+			goto ERR;
 		}
 	}
 
@@ -398,24 +398,15 @@ static void *video_capture_pthread(void *context)
 	}
 	
 //bjs ++
-	//unsigned int pixelformat = V4L2_PIX_FMT_H264;
 	framerate = 30;
 	//int bit_num = 0, tmp = 0;
-	//unsigned int width = 1920;
-	//unsigned int height = 1080;
-	//unsigned int delay = 0, nframes = (unsigned int) -1;
-	//double fps;
-	//unsigned int i;
-	//char do_xu_set_br 		= 0;
 	//int m_QP_Val = 0;
 
-
-	do_capture = 1;
-	//do_xu_set_br = 1;
+	//do_capture = 1;
 	//m_BitRate = atoi(optarg);
-	m_BitRate =2000000;
+	//m_BitRate =2000000;
 	
-	do_upload = 1;
+	//do_upload = 1;
 	device_id = 1111199999;
 	//memcpy(server_ip, "172.20.30.113", sizeof(server_ip));
 	strcpy(server_ip, "172.20.30.113");
@@ -434,12 +425,12 @@ static void *video_capture_pthread(void *context)
 
 		//prot_set_callback(&sonix_prot_callback);	//camera controls command callback.
 		
-		ret = prot_init();
-		
+		ret = prot_init();		
 		if (ret != SUCCESS) {
 			TestAp_Printf(TESTAP_DBG_ERR, "protocol init failed(%d).\n", ret);
 			goto ERR;
 		}
+		
 		ret = prot_login();
 		if (ret != SUCCESS) {
 			TestAp_Printf(TESTAP_DBG_ERR, "protocol login failed(%d).\n", ret);
@@ -459,44 +450,45 @@ static void *video_capture_pthread(void *context)
 	// yview protocol --
 //bjs --
 
-	//gettimeofday(&start, NULL);
+	gettimeofday(&start, NULL);
 
 	for (i = 0; i >= 0; i++) {
 		/* Dequeue a buffer. */
-		memset(&buf0, 0, sizeof buf0);
+		memset(&buf0, 0, sizeof(buf0));
 		buf0.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 		buf0.memory = V4L2_MEMORY_MMAP;
 		ret = ioctl(dev, VIDIOC_DQBUF, &buf0);
 		if (ret < 0) {
 			TestAp_Printf(TESTAP_DBG_ERR, "Unable to dequeue buffer0 (%d).\n", errno);
-			close(dev);
-			return NULL;
+			goto ERR;
 		}
 
 		gettimeofday(&ts, NULL);
-		TestAp_Printf(TESTAP_DBG_FRAME, "Frame[%4u] %u bytes %ld.%06ld %ld.%06ld\n ", i, buf0.bytesused, buf0.timestamp.tv_sec, buf0.timestamp.tv_usec, ts.tv_sec, ts.tv_usec);
-		if (i == 0) start = ts;
+		TestAp_Printf(TESTAP_DBG_FRAME, "Frame[%4u] %u bytes %ld.%06ld %ld.%06ld\n ", \
+					i, buf0.bytesused, buf0.timestamp.tv_sec, buf0.timestamp.tv_usec, ts.tv_sec, ts.tv_usec);
+		//if (i == 0) start = ts;
 
 		if (do_upload) {
 			ret = brvs_send_data(mem0[buf0.index], buf0.bytesused, &i);
 			if (ret != 0) {
 				TestAp_Printf(TESTAP_DBG_ERR, "Unable to send data in callback func (%d).\n", errno);
-				close(dev);
-				return NULL;
+				goto ERR;
 			}
 		}
+		//TestAp_Printf(TESTAP_DBG_FRAME, "!!!!!!!!Frame[%4u] callback send data success!!!!!!!\n ", i);
 
 
 		/* Requeue the buffer. */
-		if (delay > 0)
+		if (delay > 0) {
 			usleep(delay * 1000);
+		}
 
 		ret = ioctl(dev, VIDIOC_QBUF, &buf0);
 		if (ret < 0) {
 			TestAp_Printf(TESTAP_DBG_ERR, "Unable to requeue buffer0 (%d).\n", errno);
-			close(dev);
-			return NULL;
+			goto ERR;
 		}
+		//TestAp_Printf(TESTAP_DBG_FRAME, "@@@@@@@Frame[%4u] V4L2 put buffer success@@@@@@@\n ", i);
 
 		fflush(stdout);
 	}
@@ -551,36 +543,39 @@ static int uvc_send_data(void *data, int size, void *context)
 		to do ...
 	*/
 
-	//struct timeval start, end, ts;
 	struct timeval ts;
-	//unsigned char do_upload = 1;
-	struct h264_frame_info frame_info;	
+	struct h264_frame_info frame_info;
+	
+	//TestAp_Printf(TESTAP_DBG_FRAME, "$$$$$$$$running in callback$$$$$$$$$.\n");
 
 	gettimeofday(&ts, NULL);
-	//if (*(unsigned int*)context == 0) start = ts;
 
-// yview protocol ++
 	if (h264_frame_parse(data, 0, size, &frame_info)) {
 		if (frame_info.is_i_frame) {
-			TestAp_Printf(TESTAP_DBG_FRAME, "##### I frame, ts: %lu.\n", ts.tv_sec * 1000 + ts.tv_usec / 1000);
+			TestAp_Printf(TESTAP_DBG_FRAME, "##### I frame, ts: %ld.%06ld #######\n", ts.tv_sec, ts.tv_usec);
 			//TestAp_Printf(TESTAP_DBG_FRAME, "##### I frame.\n");
-			prot_video_frame_send(data + frame_info.header_offset, 
-								frame_info.header_length + frame_info.data_length, 
-								PROT_FRAME_I, 
-								ts.tv_sec * 1000 + ts.tv_usec / 1000);
+			ret = prot_video_frame_send(data + frame_info.header_offset, \
+									frame_info.header_length + frame_info.data_length, \
+									PROT_FRAME_I, \
+									ts.tv_sec * 1000 + ts.tv_usec / 1000);
+			if (ret != SUCCESS) {
+				TestAp_Printf(TESTAP_DBG_ERR, "prot_video_frame_send failed:(%d)\n", ret);
+				return -1;
+			}
 		} else {
-			prot_video_frame_send(data + frame_info.data_offset, 
-								frame_info.data_length, 
-								PROT_FRAME_P, 
-								ts.tv_sec * 1000 + ts.tv_usec / 1000);
+			//TestAp_Printf(TESTAP_DBG_FRAME, "###### B/P frame, ts: %ld.%06ld ######\n", ts.tv_sec, ts.tv_usec);
+			ret = prot_video_frame_send(data + frame_info.data_offset, \
+									frame_info.data_length, \
+									PROT_FRAME_P, \
+									ts.tv_sec * 1000 + ts.tv_usec / 1000);
+			if (ret != SUCCESS) {				
+				TestAp_Printf(TESTAP_DBG_ERR, "prot_video_frame_send failed:(%d)\n", ret);
+				return -1;
+			}
 		}
 	} else {
 		TestAp_Printf(TESTAP_DBG_ERR, "Parse H264 frame failed.\n");
 	}
-// yview protocol --
-
-
-
 #endif
 	return ret;
 
