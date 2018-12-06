@@ -43,17 +43,19 @@ typedef struct {
 	/* Option info */
 	short do_capture;
 	short do_upload;
-	short do_quit;		//stop the capture thread.
+	short do_quit;			//stop the capture thread.
 	short do_xu_get_br;
-	short do_xu_set_br;	
+	short do_xu_set_br;
+	short prot_online;		//if connecting to remote server
 
 	/* Media info */
 	unsigned int width;
-	unsigned int height;	
+	unsigned int height;
 	unsigned int framerate;
 	int pixelformat;
 	unsigned int delay;
-	
+	double bitrate;
+
 	/* Buffer info */
 	unsigned int nframes;
 	unsigned int nbufs;
@@ -330,8 +332,13 @@ static void *video_capture_pthread(void *context)
 	unsigned long device_id = 0;
 	char server_ip[20] = {0};
 	short server_port = 0;
-	double m_BitRate = 0;
-
+	double m_BitRate = 2000000.0;	
+	char do_xu_get_br = 0;
+	char do_xu_set_br = 1;
+	
+	g_VidInfo.bitrate = m_BitRate;
+	g_VidInfo.do_xu_get_br = do_xu_get_br;
+	g_VidInfo.do_xu_set_br = do_xu_set_br;
 	g_VidInfo.do_quit = 0;
 	g_VidInfo.do_upload = 1;
 	g_VidInfo.do_capture = 1;
@@ -351,11 +358,14 @@ static void *video_capture_pthread(void *context)
 	dev = video_open(dev_name);
 	if (dev < 0)
 		return NULL;
+
+//bjs++	
 	g_VidInfo.devfd = dev;
 	
 	if (!g_VidInfo.do_capture) {
 		goto ERR;
 	}
+//bjs--
 
 	/* Set the video format. */
 	if (video_set_format(dev, width, height, pixelformat) < 0) {
@@ -368,11 +378,6 @@ static void *video_capture_pthread(void *context)
 	}
 
 //bjs ++
-	char do_xu_get_br = 0;
-	char do_xu_set_br = 1;
-	
-	m_BitRate =2000000.0;
-
 	/* Set the bit rate of UVC device. */
 	ret = XU_Ctrl_ReadChipID(dev);
 	if (ret < 0) {
@@ -473,7 +478,7 @@ static void *video_capture_pthread(void *context)
 
 		prot_set_callback(&sonix_prot_callback);	//camera controls command callback.
 		
-		ret = prot_init();		
+		ret = prot_init();	
 		if (ret != SUCCESS) {
 			TestAp_Printf(TESTAP_DBG_ERR, "protocol init failed(%d).\n", ret);
 			goto ERR;
