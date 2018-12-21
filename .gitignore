@@ -56,3 +56,4 @@ dkms.conf
 *.h264
 *.H264
 cfdm_rx_app
+DEBUGS

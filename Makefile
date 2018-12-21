@@ -11,7 +11,7 @@ SUB_DIRS += brvs_uvc_app
 
 CFLAGS := -Wall -g
 
-LDFLAGS := 
+LDFLAGS := -g
 
 CC := $(CROSS_COMPILE)gcc
 LD := $(CROSS_COMPILE)ld
