@@ -7,6 +7,7 @@
 #include <signal.h>
 #include <getopt.h>
 #include <fcntl.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
 #include <sys/stat.h>
@@ -318,7 +319,7 @@ static void *send_ch1_data(void *context)
 
 				header = (struct sync_head *)RF_packet->data;
 				if (header->magic == SYNC_HEAD_MAGIC) {					
-					printf("!!!!!!!!!!!! %s:%d !!!!!!!!!!!!\n", __func__, __LINE__);
+					//printf("!!!!!!!!!!!! %s:%d !!!!!!!!!!!!\n", __func__, __LINE__);
 					if (off > head_len) {
 						ret = brvs_send_data((void *)((u32)rf_buf + head_len), off - head_len, &id);
 						if (ret != 0) {
@@ -331,7 +332,7 @@ static void *send_ch1_data(void *context)
 					id  = header->id;
 				}
 
-				if (off < RF_BUF_SIZE) {
+				if ((off + RF_VALID_LEN) < RF_BUF_SIZE) {
 					memcpy((void *)((u32)rf_buf + off), RF_packet->data, RF_VALID_LEN);
 					off += RF_VALID_LEN;
 				} else {
@@ -735,9 +736,48 @@ static void *recv_ch5_data(void *context)
 }
 
 //bjs++
+#define BV_TEMP 1
 static int uvc_send_data(void *data, int size, void *context)
 {
+#if BV_TEMP
+#define MCAST_PORT 7777
+#define MCAST_ADDR "224.0.0.88" 
+#define UDP_MUT_SIZE 1472
+#endif
+
+	if (BV_TEMP) {		//temp
+		//char MCAST_ADDR[16] = {0};
+		//strncpy(MCAST_ADDR,client_info.ip,sizeof(MCAST_ADDR));
+		//int MCAST_PORT = client_info.port+1;
+		static int sock = -1;
+		static struct sockaddr_in mcast_addr;
+		
+		if (sock < 0) {
+			sock=socket(AF_INET,SOCK_DGRAM,0);
+			if (sock==-1) {                 
+				perror ("socket");
+			}
+			memset(&mcast_addr,0,sizeof(mcast_addr));
+			mcast_addr.sin_family=AF_INET;
+			mcast_addr.sin_addr.s_addr=inet_addr(MCAST_ADDR);
+			mcast_addr.sin_port=htons(MCAST_PORT);
+
+			fcntl(sock, F_SETFL, fcntl(sock, F_GETFL) | O_NONBLOCK);
+		}
+		
+		char *data_payload = data;
+		int payload_size = size;
+		
+		while (payload_size > 0) {
+			int len = (payload_size > UDP_MUT_SIZE)?(UDP_MUT_SIZE):(payload_size);
+			int ret =  sendto(sock,data_payload,len,0,(const struct sockaddr*)&mcast_addr, sizeof(mcast_addr));
+			data_payload +=len;
+			payload_size -= len;
+		}
+	}
+
 #if 0
+ 	//保存数据流到文件
 	file_save("recv.264", data, size);
 	printf("data id-%d bytes-%d\n", *(unsigned int *)context, size);
 #else
