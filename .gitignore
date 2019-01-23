@@ -58,3 +58,6 @@ dkms.conf
 cfdm_rx_app
 DEBUGS
 out/
+out.*
+bv_app
+

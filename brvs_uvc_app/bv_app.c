@@ -83,7 +83,8 @@ struct sync_head {
 
 #define RF_VALID_LEN            (548)
 #define RF_BUF_SIZE             (100 * 1024)
-#define SYNC_HEAD_MAGIC         0xfefefefe
+//#define SYNC_HEAD_MAGIC         0xfefefefe
+#define SYNC_HEAD_MAGIC_STREM  0x42525653	//"BRVS"
 
 static u8 rf_buf[RF_BUF_SIZE];
 
@@ -219,7 +220,7 @@ static void uvc_unregister_notify(void)
 
 static int brvs_send_data(void *data, int size, unsigned int *id)
 {
-	int ret;
+	int ret = 0;
 	
 	if(encode_notify_func)
 		ret = (*encode_notify_func)(data, size, id);
@@ -289,9 +290,12 @@ static void *read_ch0_data(void *context)
 
 static void *send_ch1_data(void *context)
 {
-	u32 id = 0;
-	int head_len, off = 0;
-	struct sync_head *header;
+    u32 id = 0;
+    int head_len, off = 0;
+	int frame_len = 0;
+	int paket_len = 0;
+	int pad_len = 0;
+    struct sync_head *header;
 	struct vb_packet *RF_packet;
 	struct vb_packet_pool *RF_packet_pool;
 	struct vb_packet_queue *RF_packet_queue;
@@ -317,27 +321,29 @@ static void *send_ch1_data(void *context)
 			if (RF_packet_queue->curr_consumer) {				
 				RF_packet = RF_packet_queue->curr_consumer;
 
-				header = (struct sync_head *)RF_packet->data;
-				if (header->magic == SYNC_HEAD_MAGIC) {					
-					//printf("!!!!!!!!!!!! %s:%d !!!!!!!!!!!!\n", __func__, __LINE__);
-					if (off > head_len) {
-						ret = brvs_send_data((void *)((u32)rf_buf + head_len), off - head_len, &id);
-						if (ret != 0) {
-							printf("Unable to send data in callback func (%d).\n", ret);
-							//goto ERR;
-							//return &g_VidInfo;
-						}
-					}
-					off = 0;
-					id  = header->id;
-				}
-
+				header = (struct sync_head *)(RF_packet->data + (RF_VALID_LEN - head_len));	//struct header at the end of the frame
 				if ((off + RF_VALID_LEN) < RF_BUF_SIZE) {
 					memcpy((void *)((u32)rf_buf + off), RF_packet->data, RF_VALID_LEN);
 					off += RF_VALID_LEN;
 				} else {
 					off = 0;
 					printf("spi recv too long\n");
+				}
+				
+				if (header->magic == SYNC_HEAD_MAGIC_STREM) {					
+					//printf("!!!!!!!!!!!! %s:%d !!!!!!!!!!!!\n", __func__, __LINE__);					
+					frame_len = header->len;
+					pad_len = RF_VALID_LEN - ((frame_len + head_len)%RF_VALID_LEN);
+					paket_len = frame_len + head_len + pad_len;
+					if (off == paket_len) {
+						ret = brvs_send_data((void *)rf_buf, frame_len, &id);
+						if (ret != 0) {
+							printf("Unable to send data in callback func (%d).\n", ret);
+							//goto ERR;
+						}
+					}
+					off = 0;
+					id  = header->id;
 				}
 
 				RF_packet_queue->op->release_curr_consumer(RF_packet_queue, RF_packet_pool);
@@ -346,6 +352,9 @@ static void *send_ch1_data(void *context)
 	}
 
 	return NULL;
+	
+ERR:	
+	return &g_VidInfo;
 }
 
 static void *read_ch1_data(void *context)
@@ -739,6 +748,8 @@ static void *recv_ch5_data(void *context)
 #define BV_TEMP 1
 static int uvc_send_data(void *data, int size, void *context)
 {
+	int ret;
+
 #if BV_TEMP
 #define MCAST_PORT 7777
 #define MCAST_ADDR "224.0.0.88" 
@@ -767,21 +778,23 @@ static int uvc_send_data(void *data, int size, void *context)
 		
 		char *data_payload = data;
 		int payload_size = size;
-		
 		while (payload_size > 0) {
 			int len = (payload_size > UDP_MUT_SIZE)?(UDP_MUT_SIZE):(payload_size);
-			int ret =  sendto(sock,data_payload,len,0,(const struct sockaddr*)&mcast_addr, sizeof(mcast_addr));
-			data_payload +=len;
+			ret = sendto(sock,data_payload,len,0,(const struct sockaddr*)&mcast_addr, sizeof(mcast_addr));
+			if (ret < 0) {
+				printf("multicast send err. ret %d\n", ret);
+				goto ERR;
+			}
+			data_payload += len;
 			payload_size -= len;
 		}
 	}
 
 #if 0
  	//保存数据流到文件
-	file_save("recv.264", data, size);
+	//file_save("recv.264", data, size);
 	printf("data id-%d bytes-%d\n", *(unsigned int *)context, size);
 #else
-	int ret;
 	unsigned int framerate = 30;
 	int pixelformat = PIX_FMT_H264;
 	//int freeram = 0;
@@ -832,6 +845,7 @@ static int uvc_send_data(void *data, int size, void *context)
 
 	device_id = 1111199999;
 	strcpy(server_ip, "172.20.30.113");
+	//strcpy(server_ip, "192.168.10.5");
 	server_port = 8888;
 
 	if (!g_VidInfo.prot_online) {
@@ -913,6 +927,7 @@ static int uvc_send_data(void *data, int size, void *context)
 	fflush(stdout);
 
 #endif
+	return SUCCESS;
 
 ERR:
 	return ret;
