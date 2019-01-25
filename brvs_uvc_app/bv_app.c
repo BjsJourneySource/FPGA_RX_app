@@ -81,12 +81,82 @@ struct sync_head {
     u8   data[0];
 };
 
+/**************** camera device parameter *****************/
+#ifndef PROTOCOL_H
+#define PROTOCOL_H
+#if 0		//Brvs,ltd redefined our data struct(protocol.h)
+typedef struct _prot_audio_info {
+    int sample_rate;		//unit:Hz
+    int channel_count;
+    int quantization;		//unit:bit
+    int bitrate;			//unit:bps
+    int encode_type;
+}prot_audio_info;
+
+typedef struct _prot_video_info {
+    unsigned int width;
+    unsigned int height;
+    unsigned int frame_rate;
+    double		 bitrate;			//unit:bps
+    unsigned int encode_type;
+}prot_video_info;
+
+typedef struct _prot_camera_parameters {
+    unsigned int brightness;
+    unsigned int contrast;
+    unsigned int saturation;
+    unsigned int hue;
+    unsigned int sharpness;
+    unsigned int exposure;
+}prot_camera_parameters;
+
+typedef enum _prot_rotation {
+    PROT_ROTATION_0			= 0,
+    PROT_ROTATION_90 		= 1,
+    PROT_ROTATION_180 		= 2,
+    PROT_ROTATION_270 		= 3,
+}prot_rotation;
+
+typedef enum _prot_flip {
+    PROT_FLIP_NONE			= 0,
+    PROT_FLIP_VERTICAL 		= 1,
+    PROT_FLIP_HORIZONTAL	= 2,
+}prot_flip;
+
+typedef enum _prot_switch {
+    PROT_OFF 				= 0,
+    PROT_ON					= 1,
+}prot_switch;
+
+typedef struct _prot_image_parameters {
+    prot_rotation 		rotation;
+    prot_flip 			flip;
+    prot_switch 		light_barrier;
+    prot_switch 		colour_mode;
+    prot_switch 		mirror_mode;
+}prot_image_parameters;
+#endif
+
+typedef struct _prot_device_parameters
+{
+    prot_video_info			video_info;
+    prot_camera_parameters 	camera_param;
+    prot_image_parameters 	image_param;
+}prot_device_parameters;
+#endif
+
+/********************************************************/
+
+
 #define RF_VALID_LEN            (548)
 #define RF_BUF_SIZE             (100 * 1024)
+#define RF_PARAM_SIZE           (256)
 //#define SYNC_HEAD_MAGIC         0xfefefefe
 #define SYNC_HEAD_MAGIC_STREM  0x42525653	//"BRVS"
+#define SYNC_HEAD_MAGIC_PARAM  0x42525654
 
 static u8 rf_buf[RF_BUF_SIZE];
+static u8 rf_param[RF_PARAM_SIZE];
 
 static volatile u32 reg_base;
 static volatile u32 data_base;
@@ -228,6 +298,24 @@ static int brvs_send_data(void *data, int size, unsigned int *id)
 	return ret;
 }
 
+UVC_Notify param_notify_func = NULL;
+
+static void param_register_notify(UVC_Notify notify)
+{
+	param_notify_func = notify;
+}
+
+static void param_unregister_notify(void)
+{
+	param_notify_func = NULL;
+}
+
+static void brvs_send_param(void *data, int size, unsigned int *id)
+{
+	if(param_notify_func)
+		(*param_notify_func)(data, size, id);
+}
+
 /*****************************  RF channel *********************************/
 
 #define RECV_PORT  3000
@@ -290,7 +378,7 @@ static void *read_ch0_data(void *context)
 
 static void *send_ch1_data(void *context)
 {
-    u32 id = 0;
+    u32 id = 0; u32 param_id = 0;
     int head_len, off = 0;
 	int frame_len = 0;
 	int paket_len = 0;
@@ -322,6 +410,16 @@ static void *send_ch1_data(void *context)
 				RF_packet = RF_packet_queue->curr_consumer;
 
 				header = (struct sync_head *)(RF_packet->data + (RF_VALID_LEN - head_len));	//struct header at the end of the frame
+			#if 1
+				if(header->magic == SYNC_HEAD_MAGIC_PARAM)
+				{
+					memcpy((void *)rf_param, RF_packet->data, header->len);
+					brvs_send_param((void *)rf_param, header->len, &param_id);
+					param_id  = header->id;
+					goto release;
+				}
+			#endif
+
 				if ((off + RF_VALID_LEN) < RF_BUF_SIZE) {
 					memcpy((void *)((u32)rf_buf + off), RF_packet->data, RF_VALID_LEN);
 					off += RF_VALID_LEN;
@@ -341,11 +439,14 @@ static void *send_ch1_data(void *context)
 							printf("Unable to send data in callback func (%d).\n", ret);
 							//goto ERR;
 						}
+					} else {
+						printf("off:%d  paket_len:%d  frame_len:%d\n", off, paket_len, frame_len);
 					}
 					off = 0;
 					id  = header->id;
 				}
 
+release:
 				RF_packet_queue->op->release_curr_consumer(RF_packet_queue, RF_packet_pool);
 			}
 		}
@@ -744,6 +845,45 @@ static void *recv_ch5_data(void *context)
 	return NULL;
 }
 
+static void uvc_send_param(void *data, int size, void *context)
+{
+	if(1){
+		//while(1){
+			prot_device_parameters *dev_param;
+			dev_param = (prot_device_parameters *)data;
+			system("date");
+			printf("---------video_info------------\n");
+			printf("width:%d\n", dev_param->video_info.width);
+			printf("height:%d\n", dev_param->video_info.height);
+			printf("frame_rate:%d\n", dev_param->video_info.frame_rate);
+			printf("bitrate:%f\n", dev_param->video_info.bitrate);
+			printf("encode_type:%d\n", dev_param->video_info.encode_type);
+			printf("---------camera_param----------\n");
+			printf("brightness:%d\n", dev_param->camera_param.brightness);
+			printf("contrast:%d\n", dev_param->camera_param.contrast);
+			printf("saturation:%d\n", dev_param->camera_param.saturation);
+			printf("hue:%d\n", dev_param->camera_param.hue);
+			printf("sharpness:%d\n", dev_param->camera_param.sharpness);
+			printf("exposure:%d\n", dev_param->camera_param.exposure);
+			printf("---------image_param-----------\n");
+			printf("rotation:%d\n", dev_param->image_param.rotation);
+			printf("flip:%d\n", dev_param->image_param.flip);
+			//printf("light_barrier:%d\n", dev_param->image_param.light_barrier);
+			printf("light_barrier:%d\n", dev_param->image_param.light_buffle_switch);
+			printf("colour_mode:%d\n", dev_param->image_param.colour_mode);
+			printf("mirror_mode:%d\n", dev_param->image_param.mirror_mode);
+			
+		//}
+	}
+	
+	
+	/*
+	
+		to do ...
+	
+	*/
+}
+
 //bjs++
 #define BV_TEMP 1
 static int uvc_send_data(void *data, int size, void *context)
@@ -890,7 +1030,7 @@ static int uvc_send_data(void *data, int size, void *context)
 	if (g_VidInfo.do_upload) {
 		//gettimeofday(&start, NULL);
 		gettimeofday(&ts, NULL);
-		printf("Frame[%4u] %u bytes %ld.%06ld\n ", *(unsigned int *)context, size, ts.tv_sec, ts.tv_usec);
+		//printf("Frame[%4u] %u bytes %ld.%06ld\n ", *(unsigned int *)context, size, ts.tv_sec, ts.tv_usec);
 		
 		if (h264_frame_parse(data, 0, size, &frame_info)) {
 			if (frame_info.is_i_frame) {
@@ -952,6 +1092,7 @@ int main(int argc, char *argv[])
 	}
 
 	uvc_register_notify(uvc_send_data);
+	param_register_notify(uvc_send_param);
 
 	reg_write(REG_RF_CONTROL, RF_RESET);
 	reg_write(REG_RF_CONTROL, RF_ON);
